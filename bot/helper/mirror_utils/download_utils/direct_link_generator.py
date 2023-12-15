@@ -13,7 +13,7 @@ from requests import session as req_session
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from bot import config_dict
+from bot import config_dict, LOGGER
 from bot.helper.ext_utils.status_utils import speed_string_to_bytes
 from bot.helper.ext_utils.links_utils import is_share_link
 from bot.helper.ext_utils.exceptions import DirectDownloadLinkException
@@ -1224,32 +1224,31 @@ def send_cm(url):
 
 
 def doods(url):
-    if "/e/" in url:
-        url = url.replace("/e/", "/d/")
-    parsed_url = urlparse(url)
     with create_scraper() as session:
         try:
-            html = HTML(session.get(url).text)
-        except Exception as e:
-            raise DirectDownloadLinkException(
-                f"ERROR: {e.__class__.__name__} While fetching token link"
-            )
-        if not (link := html.xpath("//div[@class='download-content']//a/@href")):
-            raise DirectDownloadLinkException(
-                "ERROR: Token Link not found or maybe not allow to download! open in browser."
-            )
-        link = f"{parsed_url.scheme}://{parsed_url.hostname}{link[0]}"
-        sleep(2)
-        try:
-            _res = session.get(link)
-        except Exception as e:
-            raise DirectDownloadLinkException(
-                f"ERROR: {e.__class__.__name__} While fetching download link"
-            )
-    if not (link := search(r"window\.open\('(\S+)'", _res.text)):
-        raise DirectDownloadLinkException("ERROR: Download link not found try again")
-    return (link.group(1), f"Referer: {parsed_url.scheme}://{parsed_url.hostname}/")
+            req = session.get(f"https://api.pake.tk/dood?url={url}")
+            req.raise_for_status()  # Raises HTTPError for bad responses
 
+            jresp = req.json()
+            success = jresp.get("success", False)
+            if not success:
+                raise DirectDownloadLinkException(jresp.get("message"))
+
+            data = jresp.get("data")
+            LOGGER.info(data)
+            folder = jresp.get("folder")
+            if data:
+                if folder:
+                    origin_links = [f"<code>{item['origin']}</code>" for item in data]
+                    raise DirectDownloadLinkException("\n".join(origin_links))
+                else:
+                    # Handle the non-folder response as before
+                    name = data.get("title")
+                    referer = data.get("referer")
+                    link = data.get("direct_link")
+                    return (link, f'Referer: {referer}', name)
+        except Exception as e:
+            raise DirectDownloadLinkException(f"{e}")
 
 def easyupload(url):
     if "::" in url:
